@@ -3,8 +3,8 @@
 Simple ZephyrOS device driver using UART3 and the DMA1 (channel 4 & 7).
 
 Main features:
-	- getting bursts of uart bytes without knowing the amount of data to be received before.
-	- sending uart data via DMA to reduce MCU load
+- getting bursts of uart bytes without knowing the amount of data to be received before.
+- sending uart data via DMA to reduce MCU load
 
 The RX is received via DMA into a ring buffer. After the finish of the message burst or when the ringbuffer is half full(HTC)/full(TC) the rx callback is called. This callback is not blocking the rx/tx.
 
