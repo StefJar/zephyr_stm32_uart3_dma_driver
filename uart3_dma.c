@@ -41,24 +41,12 @@ https://github.com/MaJerle/STM32_USART_DMA_RX/blob/master/projects/idle_line_irq
 #include "uart3_dma.h"
 
 #include <zephyr.h>
-#include <errno.h>
-#include <misc/util.h>
-#include <device.h>
-#include <uart.h>
-
-#include <init.h>
-#include <soc.h>
-
 #include <stm32f4xx_ll_dma.h>
 #include <stm32f4xx_ll_usart.h>
 
 #include <logging/log.h>
 #include "../dbglog.h"
 LOG_MODULE_REGISTER(UART3DMA, LOG_LEVEL_APP_UART3DMA);
-
-#include <clock_control/stm32_clock_control.h>
-#include <serial/uart_stm32.h>
-
 
 #define UART3_DMA_RX DMA1
 #define UART3_DMA_RX_STREAM LL_DMA_STREAM_1
@@ -72,13 +60,6 @@ LOG_MODULE_REGISTER(UART3DMA, LOG_LEVEL_APP_UART3DMA);
 
 #define UART3_DMA_RX_BUFF_SIZE (512)
 
-#define UART_DEV_CFG(dev)							\
-	((const struct uart_stm32_config * const)(dev)->config->config_info)
-#define UART_DEV_DATA(dev)							\
-	((struct uart_stm32_data * const)(dev)->driver_data)
-#define UART_STRUCT(dev)					\
-	((USART_TypeDef *)(UART_DEV_CFG(dev))->uconf.base)
-
 typedef struct uart3_dma {
 	struct {
 		u8_t buffer[UART3_DMA_RX_BUFF_SIZE];
@@ -87,6 +68,7 @@ typedef struct uart3_dma {
 
 	struct {
 		struct k_sem txDone;
+		struct k_mutex guardM;
 	} tx;
 } uart3_dma_t;
 
@@ -214,6 +196,7 @@ static int uart3_dma_initilize(struct device *dev) {
 	memset(&uart3dma, 0, sizeof(uart3dma));
 
 	k_sem_init(&uart3dma.tx.txDone, 0, 1);
+	k_mutex_init(&uart3dma.tx.guardM);
 
 	// dma general setup
 	LL_APB1_GRP1_EnableClock(LL_APB1_GRP1_PERIPH_USART3);
@@ -283,13 +266,16 @@ static int uart3_dma_initilize(struct device *dev) {
 }
 
 static uart3_dma_error_t uart3_dma_writeBuffer(u8_t * pB, size_t len, u32_t timeout) {
+	uart3_dma_error_t r = uart3_dma_error_success;
+	k_mutex_lock(&uart3dma.tx.guardM, K_FOREVER);
 	LL_DMA_SetMemoryAddress(UART3_DMA_TX, UART3_DMA_TX_STREAM, (uint32_t)pB);
 	LL_DMA_SetDataLength(UART3_DMA_TX, UART3_DMA_TX_STREAM, len);
 	LL_DMA_EnableStream(UART3_DMA_TX, UART3_DMA_TX_STREAM);
 	if (k_sem_take(&uart3dma.tx.txDone, timeout)) {
-		return uart3_dma_error_timeout;
+		r = uart3_dma_error_timeout;
 	}
-	return uart3_dma_error_success;
+	k_mutex_unlock(&uart3dma.tx.guardM);
+	return r;
 }
 
 static const uart3_dma_api_t uart3dmaAPI = {
